@@ -4,16 +4,18 @@ use std::time::Duration;
 use rs_loadgen::http::Target;
 use rs_loadgen::{Mode, Plan, run};
 
-const USAGE: &str = "usage: rs-loadgen URL [--rate 100] [--duration 10] [--connections 20] [--timeout 10] [--closed]
+const USAGE: &str = "usage: rs-loadgen URL [--rate 100] [--duration 10] [--connections 20] [--timeout 10] [--closed] [--timeline]
 
   --rate N          requests per second, across all connections
   --duration S      seconds to run
   --connections N   connections to keep open; more than rate × latency, or requests queue
   --timeout S       give up on a request after this many seconds
   --closed          measure like most load generators do, for comparison: from when each
-                    request was really sent, skipping the ones a slow response delayed";
+                    request was really sent, skipping the ones a slow response delayed
+  --timeline        also show latency second by second";
 
-fn parse(args: &[String]) -> Result<Plan, String> {
+/// The plan, and whether to show the timeline.
+fn parse(args: &[String]) -> Result<(Plan, bool), String> {
     let mut plan = Plan {
         target: Target::parse(args.first().ok_or("no URL given")?)?,
         rate: 100.0,
@@ -22,6 +24,7 @@ fn parse(args: &[String]) -> Result<Plan, String> {
         mode: Mode::Open,
         timeout: Duration::from_secs(10),
     };
+    let mut timeline = false;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         let mut number = || -> Result<f64, String> {
@@ -38,13 +41,14 @@ fn parse(args: &[String]) -> Result<Plan, String> {
             "--connections" => plan.connections = number()? as usize,
             "--timeout" => plan.timeout = Duration::from_secs_f64(number()?),
             "--closed" => plan.mode = Mode::Closed,
+            "--timeline" => timeline = true,
             _ => return Err(format!("unknown option: {flag}")),
         }
     }
     if plan.connections == 0 {
         return Err("--connections needs at least 1".into());
     }
-    Ok(plan)
+    Ok((plan, timeline))
 }
 
 fn main() -> ExitCode {
@@ -53,8 +57,8 @@ fn main() -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    let plan = match parse(&args) {
-        Ok(plan) => plan,
+    let (plan, timeline) = match parse(&args) {
+        Ok(parsed) => parsed,
         Err(e) => {
             eprintln!("{e}\n\n{USAGE}");
             return ExitCode::from(2);
@@ -75,6 +79,14 @@ fn main() -> ExitCode {
         plan.connections
     );
     let report = run(&plan);
+    if timeline {
+        for (second, summary) in report.timeline.iter().enumerate() {
+            println!(
+                "second {second:>3}: {:>6} requests  {summary}",
+                summary.count
+            );
+        }
+    }
     println!("{}", report.latency);
     println!(
         "{} of {} scheduled requests answered, {} errors, {:.1} s",
@@ -100,22 +112,22 @@ mod tests {
 
     #[test]
     fn options() {
-        let plan = parse(&args(
-            "http://localhost:8080/ --rate 250 --duration 2.5 --connections 8 --timeout 3 --closed",
+        let (plan, timeline) = parse(&args(
+            "http://localhost:8080/ --rate 250 --duration 2.5 --connections 8 --timeout 3 --closed --timeline",
         ))
         .unwrap();
         assert_eq!(
-            (plan.rate, plan.connections, plan.mode),
-            (250.0, 8, Mode::Closed)
+            (plan.rate, plan.connections, plan.mode, timeline),
+            (250.0, 8, Mode::Closed, true)
         );
         assert_eq!(
             (plan.duration, plan.timeout),
             (Duration::from_millis(2500), Duration::from_secs(3))
         );
-        let defaults = parse(&args("http://localhost/")).unwrap();
+        let (defaults, timeline) = parse(&args("http://localhost/")).unwrap();
         assert_eq!(
-            (defaults.rate, defaults.connections, defaults.mode),
-            (100.0, 20, Mode::Open)
+            (defaults.rate, defaults.connections, defaults.mode, timeline),
+            (100.0, 20, Mode::Open, false)
         );
     }
 

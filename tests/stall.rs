@@ -134,3 +134,27 @@ fn a_server_that_closes_after_each_response_gets_a_new_connection_each_time() {
     });
     assert_eq!((r.completed, r.errors), (20, 0));
 }
+
+#[test]
+fn the_timeline_shows_when_the_stall_happened() {
+    let open = stalled(Mode::Open);
+    // 3 seconds, 200 requests due in each. The stall is the second one.
+    let counts: Vec<usize> = open.timeline.iter().map(|s| s.count).collect();
+    assert_eq!(counts, [200, 200, 200]);
+    assert!(open.timeline[0].p99 < 100 * MS, "{}", open.timeline[0]);
+    assert!(
+        open.timeline[1].p50 > 300 * MS && open.timeline[1].max > 900 * MS,
+        "{}",
+        open.timeline[1]
+    );
+    assert!(open.timeline[2].p99 < 100 * MS, "{}", open.timeline[2]);
+
+    // The closed model barely sends during the stall: one stuck request per connection.
+    let closed = stalled(Mode::Closed);
+    assert!(
+        closed.timeline[1].count <= 40,
+        "{} sent during the stall",
+        closed.timeline[1].count
+    );
+    assert!(closed.timeline[0].count >= 150 && closed.timeline[2].count >= 150);
+}
