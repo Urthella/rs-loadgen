@@ -38,6 +38,9 @@ pub struct Report {
     pub completed: u64,
     pub errors: u64,
     pub elapsed: Duration,
+    /// Latency second by second: by when each request was due in the open model, by when it was
+    /// sent in the closed one.
+    pub timeline: Vec<Summary>,
 }
 
 /// Runs a plan and reports what it measured.
@@ -53,20 +56,27 @@ pub fn run(plan: &Plan) -> Report {
             thread::spawn(move || work(&plan, worker, start, total, &next))
         })
         .collect();
-    let mut latencies = Vec::new();
+    let mut samples = Vec::new();
     let mut errors = 0;
     for worker in workers {
-        let (mut l, e) = worker.join().expect("a worker panicked");
-        latencies.append(&mut l);
+        let (mut s, e) = worker.join().expect("a worker panicked");
+        samples.append(&mut s);
         errors += e;
+    }
+    let seconds = plan.duration.as_secs_f64().ceil() as usize;
+    let mut by_second = vec![Vec::new(); seconds.max(1)];
+    let last = by_second.len() - 1;
+    for &(second, micros) in &samples {
+        by_second[(second as usize).min(last)].push(micros);
     }
     Report {
         mode: plan.mode,
-        completed: latencies.len() as u64,
-        latency: Summary::of(latencies),
+        completed: samples.len() as u64,
+        latency: Summary::of(samples.into_iter().map(|(_, micros)| micros).collect()),
         scheduled: total,
         errors,
         elapsed: start.elapsed(),
+        timeline: by_second.into_iter().map(Summary::of).collect(),
     }
 }
 
@@ -81,8 +91,15 @@ fn work(
     start: Instant,
     total: u64,
     next: &AtomicU64,
-) -> (Vec<u64>, u64) {
-    let mut latencies = Vec::new();
+) -> (Vec<(u32, u64)>, u64) {
+    // Each sample is (second of the run, latency in microseconds).
+    let mut samples = Vec::new();
+    let sample = |at: Instant| {
+        (
+            (at - start).as_secs() as u32,
+            at.elapsed().as_micros() as u64,
+        )
+    };
     let mut errors = 0;
     let mut conn: Option<Conn> = None;
     let mut send = |conn: &mut Option<Conn>| -> bool {
@@ -107,7 +124,7 @@ fn work(
             let at = due(start, k, plan.rate);
             sleep_until(at);
             if send(&mut conn) {
-                latencies.push(at.elapsed().as_micros() as u64);
+                samples.push(sample(at));
             }
         },
         Mode::Closed => {
@@ -118,7 +135,7 @@ fn work(
                 sleep_until(due(start, k * n + w, plan.rate));
                 let sent = Instant::now();
                 if send(&mut conn) {
-                    latencies.push(sent.elapsed().as_micros() as u64);
+                    samples.push(sample(sent));
                 }
                 // Its slots that went by while it waited are skipped, never sent.
                 let now = start.elapsed().as_secs_f64() * plan.rate;
@@ -127,7 +144,7 @@ fn work(
             }
         }
     }
-    (latencies, errors)
+    (samples, errors)
 }
 
 fn sleep_until(at: Instant) {

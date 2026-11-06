@@ -36,6 +36,20 @@ p50 3.8 ms  p90 4.2 ms  p99 5.4 ms  p99.9 16.8 ms  max 16.8 ms
 15000 of 15000 scheduled requests answered, 0 errors, 30.0 s
 ```
 
+`--timeline` adds latency second by second, which shows when a run went wrong, not just how
+much. Here the server stalled for a second that straddled the first two:
+
+```
+second   0:    200 requests  p50 575.7 ms  p90 913.4 ms  p99 992.4 ms  p99.9 1002.1 ms  max 1002.1 ms
+second   1:    200 requests  p50 5.8 ms  p90 299.4 ms  p99 374.3 ms  p99.9 384.0 ms  max 384.0 ms
+second   2:    200 requests  p50 5.5 ms  p90 5.8 ms  p99 6.1 ms  p99.9 6.4 ms  max 6.4 ms
+second   3:    200 requests  p50 5.5 ms  p90 5.8 ms  p99 7.3 ms  p99.9 7.8 ms  max 7.8 ms
+```
+
+Requests are counted in the second they were due, so each second has its 200 even when the
+server answered none of them on time. With `--closed`, they're counted in the second they were
+sent, and the stalled second is nearly empty.
+
 `--closed` measures the other way, for comparison. Use enough connections that `rate × latency`
 fits: a request due while every connection is busy waits for one, and that wait counts.
 
@@ -59,11 +73,12 @@ version with an experiment that shows the difference.
 The tests run against a built-in server that stalls for a known second, so the true latencies are
 known. In the open model, all 600 requests are answered and p90 lands between 0.5 and 0.9 s, where
 the theory puts it at 0.7 s for that run. In the closed model, fewer than 500 are sent and p90 stays
-under 100 ms. Without a stall, both agree. Other tests cover HTTP parsing (lengths, chunks,
+under 100 ms. The timeline puts the slow requests in the stalled second in the open model, and
+almost no requests at all there in the closed one. Without a stall, both agree. Other tests cover HTTP parsing (lengths, chunks,
 `Connection: close`, HTTP/1.0, 204), reconnecting to a server that closes after every response, an
 unreachable server, and the command line.
 
-To check that the tests can fail, 10 bugs were planted one at a time, and every one was caught:
+To check that the tests can fail, 12 bugs were planted one at a time, and every one was caught:
 among them, the open model measuring from when it sent, the closed model catching up instead of
 skipping, and reusing a connection the server closed.
 
@@ -75,6 +90,9 @@ skipping, and reusing a connection the server closed.
   requests a second takes about 48 MB.
 - **The generator's own pauses count too.** If the machine running it stalls, that shows up as
   latency, which is the honest answer but not the server's fault.
+- **The timing tests are checked on Linux and Windows.** On GitHub's macOS runners, the machine's
+  own scheduling delays reached tens of milliseconds and more, even with no stall, so the tests'
+  thresholds don't hold there and are skipped. The rest of the tests run on macOS too.
 
 Claude, Anthropic's AI model, wrote this with Halil Utku Demirtaş directing the work.
 
