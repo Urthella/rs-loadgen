@@ -39,6 +39,10 @@ fn stalled(mode: Mode) -> Report {
 const MS: u64 = 1000;
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "GitHub's macOS runners delay threads by tens of milliseconds, which this measures"
+)]
 fn the_open_model_sees_the_stall_in_every_request_it_delayed() {
     let _turn = one_at_a_time();
     let r = stalled(Mode::Open);
@@ -59,6 +63,10 @@ fn the_open_model_sees_the_stall_in_every_request_it_delayed() {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "GitHub's macOS runners delay threads by tens of milliseconds, which this measures"
+)]
 fn the_closed_model_hides_it() {
     let _turn = one_at_a_time();
     let r = stalled(Mode::Closed);
@@ -70,6 +78,10 @@ fn the_closed_model_hides_it() {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "GitHub's macOS runners delay threads by tens of milliseconds, which this measures"
+)]
 fn without_a_stall_both_agree() {
     let _turn = one_at_a_time();
     let addr = spawn(Behavior {
@@ -149,6 +161,10 @@ fn a_server_that_closes_after_each_response_gets_a_new_connection_each_time() {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "GitHub's macOS runners delay threads by tens of milliseconds, which this measures"
+)]
 fn the_timeline_shows_when_the_stall_happened() {
     let _turn = one_at_a_time();
     let open = stalled(Mode::Open);

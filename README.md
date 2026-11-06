@@ -90,6 +90,9 @@ skipping, and reusing a connection the server closed.
   requests a second takes about 48 MB.
 - **The generator's own pauses count too.** If the machine running it stalls, that shows up as
   latency, which is the honest answer but not the server's fault.
+- **The timing tests are checked on Linux and Windows.** On GitHub's macOS runners, the machine's
+  own scheduling delays reached tens of milliseconds and more, even with no stall, so the tests'
+  thresholds don't hold there and are skipped. The rest of the tests run on macOS too.
 
 Claude, Anthropic's AI model, wrote this with Halil Utku Demirtaş directing the work.
 
