@@ -1,11 +1,19 @@
 //! The measurement against a server that stalls for a known second, so the true latencies are
 //! known: requests due during the stall wait until it ends.
 
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rs_loadgen::http::Target;
 use rs_loadgen::server::{Behavior, spawn};
 use rs_loadgen::{Mode, Plan, Report, run};
+
+/// These tests measure time, and the generator's own delays count as latency, so they take turns:
+/// run side by side on a small CI machine, their threads slowed each other by 100 ms and more.
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// 3 seconds at 200 requests a second, with the server stalled for the middle one.
 fn stalled(mode: Mode) -> Report {
@@ -32,6 +40,7 @@ const MS: u64 = 1000;
 
 #[test]
 fn the_open_model_sees_the_stall_in_every_request_it_delayed() {
+    let _turn = one_at_a_time();
     let r = stalled(Mode::Open);
     // 200 of the 600 requests were due during the stall, their latencies spread from 1 s down to
     // nothing: the slowest 60, a tenth of all, waited at least 0.7 s.
@@ -51,6 +60,7 @@ fn the_open_model_sees_the_stall_in_every_request_it_delayed() {
 
 #[test]
 fn the_closed_model_hides_it() {
+    let _turn = one_at_a_time();
     let r = stalled(Mode::Closed);
     // Each of the 20 connections had one request held up; the rest due during the stall were
     // never sent, so most of the slow requests are missing from its numbers.
@@ -61,6 +71,7 @@ fn the_closed_model_hides_it() {
 
 #[test]
 fn without_a_stall_both_agree() {
+    let _turn = one_at_a_time();
     let addr = spawn(Behavior {
         service: Duration::from_millis(1),
         stall: None,
@@ -82,6 +93,7 @@ fn without_a_stall_both_agree() {
 
 #[test]
 fn an_unreachable_server_counts_errors_instead_of_hanging() {
+    let _turn = one_at_a_time();
     // Bind and drop a listener to get a port nothing listens on.
     let port = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -109,6 +121,7 @@ fn an_unreachable_server_counts_errors_instead_of_hanging() {
 
 #[test]
 fn a_server_that_closes_after_each_response_gets_a_new_connection_each_time() {
+    let _turn = one_at_a_time();
     use std::io::{BufRead, BufReader, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -137,6 +150,7 @@ fn a_server_that_closes_after_each_response_gets_a_new_connection_each_time() {
 
 #[test]
 fn the_timeline_shows_when_the_stall_happened() {
+    let _turn = one_at_a_time();
     let open = stalled(Mode::Open);
     // 3 seconds, 200 requests due in each. The stall is the second one.
     let counts: Vec<usize> = open.timeline.iter().map(|s| s.count).collect();
