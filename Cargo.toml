@@ -1,0 +1,9 @@
+[package]
+name = "rs-loadgen"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "An HTTP load generator that measures latency from when each request should have been sent, so a stalled server can't hide its stall"
+repository = "https://github.com/Urthella/rs-loadgen"
+
+[dependencies]
